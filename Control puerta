@@ -1,0 +1,236 @@
+//Control Puerta
+//Cinthya Cano
+
+// INCLUIR LIBRERIAS
+#include <SPI.h> //Libreria que nos permite enviar y recibir datos utilizando dicho bus
+#include <MFRC522.h> //Libreria para el modulo RFID
+#include <LiquidCrystal_I2C.h> //Pantalla LCD 16x2
+#include <TimeLib.h>
+#include <ESP8266WiFi.h>
+#include <Time.h>
+#include "FirebaseESP8266.h"
+
+// PINES ESP 
+  #define SS_PIN 0  //Pin D3 de la ESP8266
+  #define RST_PIN 2 //Pin D4 de la ESP8266
+
+// BASE DE DATOS
+  #define FIREBASE_HOST "cisterna-tinaco-iot-default-rtdb.firebaseio.com" // Manu:cisterna-tinaco-iot-default-rtdb.firebaseio.com --- Cinthya : control-de-acceso-f33ce-default-rtdb.firebaseio.com
+  #define FIREBASE_AUTH "fucx9kG1YkhDPdbI22iULkC3EbsT1zEnlsz1msMm" //fucx9kG1YkhDPdbI22iULkC3EbsT1zEnlsz1msMm ---  DPFW27vfavs2WW54dgD7hsDw05vatuo7zuJIKhml
+
+// RED WIFI A LA QUE SE CONECTA LA ESP
+  #define WIFI_SSID "TOTALPLAY_C1920B" //TOTALPLAY_C1920B ------ Nokia 5.1 Plus --------Tplink_4106-------Dark_Side
+  #define WIFI_PASSWORD "3ZT4WTRTCR"  //3ZT4WTRTCR ------- Holahola ---------------54281264------112233445566ax
+
+  MFRC522 mfrc522(SS_PIN, RST_PIN);   // Crear instancia MFRC522
+  LiquidCrystal_I2C lcd(0x27, 16, 2); 
+  int statuss = 0;
+  int out = 0;
+  const unsigned char Active_buzzer = 15;//Pin D8 de la ESP8266
+   int rele=3;
+
+   time_t fecha;
+// BASE DE DATOS
+   String path = "/Puerta";
+   //String path2 = "/Estado";
+   bool verificar1 = false;
+   FirebaseData firebaseData;
+
+
+void setup() {
+  Serial.begin(9600);
+
+  setTime(04,50,00,27,03,2023); //AGREGAR FECHA Y HORA
+  pinMode(3, OUTPUT);
+  
+  SPI.begin();   
+  mfrc522.PCD_Init(); 
+  lcd.begin();
+  lcd.backlight();
+  lcd.setCursor(2, 0);
+  lcd.print("CONECTANDO...");
+  pinMode (Active_buzzer,OUTPUT) ;
+
+
+// CONECTAR A LA BASE DE DATOS
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("CONECTANDO");
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+  Serial.println();
+  Serial.print("CONECTADO: ");
+  Serial.println(WiFi.localIP());
+
+// TEXTO LCD
+  lcd.backlight();
+  lcd.setCursor(1, 0);
+  lcd.print("IDENTIFIQUESE");
+    delay(2000);
+
+// MOSTAR TEXTO EN PUERTO SERIAL DESPUÉS DE QUE SE CONECTÓ A LA BASE DE DATOS
+  Serial.println("  LISTO");    // Muestra texto
+  Serial.println("      ACCESO          |                  Usuario                  |      Fecha y hora");
+
+// BASE DE DATOS
+  Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
+  Firebase.reconnectWiFi(true);
+}
+
+
+void loop() 
+{
+
+    Firebase.getBool(firebaseData, path + "/CerradoAbierto");
+  verificar1 = firebaseData.intData();
+  delay(500);
+  if (verificar1 == 0){
+    digitalWrite(rele, HIGH);
+    tone(Active_buzzer, 100); //Activar buzzer
+     delay(3000);
+     digitalWrite(rele, LOW);
+    noTone(Active_buzzer); //Apaga buzzer
+  Firebase.setBool(firebaseData, path + "/CerradoAbierto", true);
+  }
+
+  
+ time_t t = now();
+
+// VER SI HAY TARJETA Y LEER TARJETA
+  if ( ! mfrc522.PICC_IsNewCardPresent()){ 
+    return; 
+  }
+  if ( ! mfrc522.PICC_ReadCardSerial()){
+    return;
+  }
+  
+// MOSTRAR UID EN EL PUERTO SERIAL
+      //Serial.println(" UID tag :");
+  String content= "";
+  byte letter;
+  for (byte i = 0; i < mfrc522.uid.size; i++) 
+  {
+     Serial.print(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " ");
+    // Serial.print(mfrc522.uid.uidByte[i], HEX); // Convertir a hexadecimal el dato del UID
+     content.concat(String(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " "));
+     content.concat(String(mfrc522.uid.uidByte[i], HEX));
+  }
+  content.toUpperCase();
+  
+// ☻ PARA USUARIOS CON ACCESO ☻
+
+  if (content.substring(1) == "73 25 A5 1B") //Se agrega el UID de la tarjeta que tendrá acceso 
+  { 
+    
+// TEXTO DE USUARIO CON ACCESO PARA EL PUERTO SERIAL Y LCD 
+    Serial.print("Acceso Permitido  |  Usuario: Cinthya Lizbeth Cano Ramírez    |    ");
+    lcd.clear();
+    lcd.setCursor(3,0);
+    lcd.print("BIENVENIDA");
+    lcd.setCursor(4,1);
+    lcd.print("CINTHYA");
+    lcd.setCursor(0,0);
+
+// IMPRIMIR EN PUERTO SERIAL FECHA Y HORA
+      Serial.print(day(t));
+      Serial.print(+ "/") ;
+      Serial.print(month(t));
+      Serial.print(+ "/") ;
+      Serial.print(year(t)); 
+      Serial.print( " ") ;
+      Serial.print(hour(t));  
+      Serial.print(+ ":") ;
+      Serial.print(minute(t));
+      Serial.print(":") ;
+      Serial.println(second(t));
+
+// ACTIVAR BUZZER
+    tone(Active_buzzer, 100); //Activar buzzer
+      delay(2000);
+    noTone(Active_buzzer); //Apaga buzzer
+
+// ----ENVIAR A LA BASE DE DATOS----
+// FECHA
+    if (Firebase.setString(firebaseData, path + "/DATE/DIA", day(t))){}
+    if (Firebase.setString(firebaseData, path + "/DATE/MES", month(t))){}
+    if (Firebase.setString(firebaseData, path + "/DATE/ANO", year(t))){}
+// HORA
+    if (Firebase.setString(firebaseData, path + "/TIME/HORA", hour(t))){}
+    if (Firebase.setString(firebaseData, path + "/TIME/MINUTO", minute(t))){}
+    if (Firebase.setString(firebaseData, path + "/TIME/SEGUNDO", second(t))){}
+// USUARIO
+    if (Firebase.setString(firebaseData, path + "/ACCESO/USUARIO", "CINTHYA LIZBETH CANO RAMÍREZ")){}
+
+
+// ENVIAR A LA BASE DE DATOS QUE LA PUERTA ESTÁ ABIERTA
+if (Firebase.setBool(firebaseData, path + "/CerradoAbierto", false)){} //0 = Abierta
+
+
+digitalWrite(rele, HIGH);
+delay(3000);
+digitalWrite(rele, LOW);
+//delay(1000); 
+
+// ENVIAR A LA BASE DE DATOS QUE LA PUERTA ESTÁ CERRADA
+  if (Firebase.setBool(firebaseData, path + "/CerradoAbierto", true)){} //1 = Cerrada
+
+
+// TEXTO LCD
+   lcd.clear();
+   lcd.setCursor(1,0);
+   lcd.print("IDENTIFIQUESE");
+   lcd.setCursor(0,0);
+    delay(2000);
+  }
+
+// ☻ PARA USUARIOS SIN ACCESO ☻
+  else   {
+
+// TEXTO DE USUARIO DESCONOCIDO PARA EL PUERTO SERIAL Y LCD 
+    Serial.print("Acceso Denegado   |  Usuario desconocido                      |    ");
+    lcd.clear();
+    lcd.setCursor(5,0);
+    lcd.print("ACCESO");
+    lcd.setCursor(4,1);
+    lcd.print("DENEGADO");
+    lcd.setCursor(0,0);
+
+// IMPRIMIR EN PUERTO SERIAL FECHA Y HORA
+      Serial.print(day(t));
+      Serial.print(+ "/") ;
+      Serial.print(month(t));
+      Serial.print(+ "/") ;
+      Serial.print(year(t)); 
+      Serial.print( " ") ;
+      Serial.print(hour(t));  
+      Serial.print(+ ":") ;
+      Serial.print(minute(t));
+      Serial.print(":") ;
+      Serial.println(second(t));
+      
+// ACTIVAR BUZZER
+    tone(Active_buzzer, 500);
+      delay(2000);
+    noTone(Active_buzzer);
+
+//----ENVIAR A LA BASE DE DATOS----
+// FECHA
+    if (Firebase.setString(firebaseData, path + "/DATE/DIA", day(t))){}
+    if (Firebase.setString(firebaseData, path + "/DATE/MES", month(t))){}
+    if (Firebase.setString(firebaseData, path + "/DATE/ANO", year(t))){}
+// HORA
+    if (Firebase.setString(firebaseData, path + "/TIME/HORA", hour(t))){}
+    if (Firebase.setString(firebaseData, path + "/TIME/MINUTO", minute(t))){}
+    if (Firebase.setString(firebaseData, path + "/TIME/SEGUNDO", second(t))){}
+// USUARIO
+    if (Firebase.setString(firebaseData, path + "/ACCESO/USUARIO", "DESCONOCIDO")){}
+
+// TEXTO LCD
+    lcd.clear();
+    lcd.setCursor(1,0);
+    lcd.print("IDENTIFIQUESE");
+    lcd.setCursor(0,0);
+      delay(2000);
+  }
+} 
